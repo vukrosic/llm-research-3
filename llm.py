@@ -18,6 +18,9 @@ import pickle
 from accelerate import Accelerator
 warnings.filterwarnings('ignore')
 
+# Avoid HF tokenizers fork warnings/deadlocks with DataLoader workers
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 def set_seed(seed: int = 42):
     """Set all random seeds for reproducibility"""
     random.seed(seed)
@@ -92,24 +95,31 @@ class Muon(torch.optim.Optimizer):
         defaults = dict(lr=lr, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps)
         super().__init__(params, defaults)
 
-    @torch.no_grad()
-    def step(self):
-        for group in self.param_groups:
-            for p in group["params"]:
-                if p.grad is None:
-                    continue
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
 
-                g = p.grad
-                state = self.state[p]
+        with torch.no_grad():
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
 
-                if "momentum_buffer" not in state:
-                    state["momentum_buffer"] = torch.zeros_like(g)
+                    g = p.grad
+                    state = self.state[p]
 
-                buf = state["momentum_buffer"]
-                buf.lerp_(g, 1 - group["momentum"])
-                g = g.lerp_(buf, group["momentum"]) if group["nesterov"] else buf
-                g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
-                p.add_(g.view_as(p), alpha=-group["lr"] * max(1, p.size(-2) / p.size(-1))**0.5)
+                    if "momentum_buffer" not in state:
+                        state["momentum_buffer"] = torch.zeros_like(g)
+
+                    buf = state["momentum_buffer"]
+                    buf.lerp_(g, 1 - group["momentum"])
+                    g = g.lerp_(buf, group["momentum"]) if group["nesterov"] else buf
+                    g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
+                    p.add_(g.view_as(p), alpha=-group["lr"] * max(1, p.size(-2) / p.size(-1))**0.5)
+
+        return loss
 	
 def load_and_cache_data(config: ModelConfig, cache_dir: str = "data_cache"):
     """Load and cache tokenized data to avoid reprocessing"""
@@ -365,7 +375,7 @@ def setup_muon_optimizer(model: nn.Module, config: ModelConfig):
 
 def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataLoader, accelerator: Optional[Accelerator] = None):
     """Train the model with Muon optimizer"""
-    accelerator = accelerator or Accelerator()
+    accelerator = accelerator or Accelerator(gradient_accumulation_steps=config.gradient_accumulation_steps)
     accelerator.print(f"\n🚀 Training Small model with Muon optimizer")
 
     # Initialize model
@@ -480,7 +490,7 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
     return model, final_eval
 
 if __name__ == "__main__":
-    accelerator = Accelerator()
+    accelerator = Accelerator(gradient_accumulation_steps=ModelConfig.gradient_accumulation_steps if isinstance(ModelConfig.gradient_accumulation_steps, int) else 1)
     # Check system
     accelerator.print(f"🔍 Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
     if torch.cuda.is_available() and accelerator.is_main_process:
