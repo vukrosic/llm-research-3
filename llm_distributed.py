@@ -566,11 +566,10 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
     return model, final_eval
 
 if __name__ == "__main__":
-    # Initialize accelerator with optimizations
+    # Initialize accelerator with compatible parameters
     accelerator = Accelerator(
         gradient_accumulation_steps=ModelConfig().gradient_accumulation_steps,
         mixed_precision='fp16',  # Enable mixed precision for better performance
-        dispatch_batches=True,   # Better batch dispatching
         split_batches=False      # Don't split batches (we want larger effective batch size)
     )
     
