@@ -1,3 +1,278 @@
+(base) vukrosic@Vuks-MacBook-Pro llm-research-3 % ssh -p 44675 root@proxy.af-za-1.gpu-instance.novita.ai
+root@8a214ff19168fc2c:~# git clone https://github.com/vukrosic/llm-research-3
+Cloning into 'llm-research-3'...
+remote: Enumerating objects: 5, done.
+remote: Counting objects: 100% (5/5), done.
+remote: Compressing objects: 100% (4/4), done.
+remote: Total 5 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+Receiving objects: 100% (5/5), done.
+root@8a214ff19168fc2c:~# ls
+llm-research-3  llm-research-v2  start.sh
+root@8a214ff19168fc2c:~# cd llm-research-3/
+root@8a214ff19168fc2c:~/llm-research-3# ls
+LICENSE  README.md  gpu_monitor.py  llm.py
+root@8a214ff19168fc2c:~/llm-research-3# git pull
+remote: Enumerating objects: 6, done.
+remote: Counting objects: 100% (6/6), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 4 (delta 2), reused 4 (delta 2), pack-reused 0 (from 0)
+Unpacking objects: 100% (4/4), 1.39 KiB | 1.39 MiB/s, done.
+From https://github.com/vukrosic/llm-research-3
+   5e60194..e925f02  main       -> origin/main
+Updating 5e60194..e925f02
+Fast-forward
+ llm.py           | 168 ++++++++++++++++++++++++---------------------
+ requirements.txt |   0
+ 2 files changed, 90 insertions(+), 78 deletions(-)
+ create mode 100644 requirements.txt
+root@8a214ff19168fc2c:~/llm-research-3# git pull
+remote: Enumerating objects: 5, done.
+remote: Counting objects: 100% (5/5), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 3 (delta 2), reused 3 (delta 2), pack-reused 0 (from 0)
+Unpacking objects: 100% (3/3), 269 bytes | 269.00 KiB/s, done.
+From https://github.com/vukrosic/llm-research-3
+   e925f02..c620574  main       -> origin/main
+Updating e925f02..c620574
+Fast-forward
+ llm.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+root@8a214ff19168fc2c:~/llm-research-3# accelerate launch --num_processes 2 --gradient_accumulation_steps 4 llm-research-3/llm.py
+The following values were not passed to `accelerate launch` and had defaults used instead:
+                More than one GPU was found, enabling multi-GPU training.
+                If this was unintended please pass in `--num_processes=1`.
+        `--num_machines` was set to a value of `1`
+        `--mixed_precision` was set to a value of `'no'`
+        `--dynamo_backend` was set to a value of `'no'`
+To avoid this warning pass in values for each of the problematic parameters or run `accelerate config`.
+/opt/conda/bin/python3.11: can't open file '/root/llm-research-3/llm-research-3/llm.py': [Errno 2] No such file or directory
+/opt/conda/bin/python3.11: can't open file '/root/llm-research-3/llm-research-3/llm.py': [Errno 2] No such file or directory
+E0819 07:55:06.152000 3529 site-packages/torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: 2) local_rank: 0 (pid: 3575) of binary: /opt/conda/bin/python3.11
+Traceback (most recent call last):
+  File "/opt/conda/bin/accelerate", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/accelerate/commands/accelerate_cli.py", line 50, in main
+    args.func(args)
+  File "/opt/conda/lib/python3.11/site-packages/accelerate/commands/launch.py", line 1226, in launch_command
+    multi_gpu_launcher(args)
+  File "/opt/conda/lib/python3.11/site-packages/accelerate/commands/launch.py", line 853, in multi_gpu_launcher
+    distrib_run.run(args)
+  File "/opt/conda/lib/python3.11/site-packages/torch/distributed/run.py", line 883, in run
+    elastic_launch(
+  File "/opt/conda/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 139, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 270, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+llm-research-3/llm.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2025-08-19_07:55:06
+  host      : 8a214ff19168fc2c
+  rank      : 1 (local_rank: 1)
+  exitcode  : 2 (pid: 3576)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2025-08-19_07:55:06
+  host      : 8a214ff19168fc2c
+  rank      : 0 (local_rank: 0)
+  exitcode  : 2 (pid: 3575)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+root@8a214ff19168fc2c:~/llm-research-3# accelerate config
+----------------------------------------------------------------------In which compute environment are you running?
+Please select a choice using the arrow or number keys, and selecting wThis machine                                                          
+----------------------------------------------------------------------Which type of machine are you using?                                  
+Please select a choice using the arrow or number keys, and selecting wmulti-GPU                                                             
+How many different machines will you use (use more than 1 for multi-node training)? [1]: 1                                                  
+Should distributed operations be checked while running for errors? This can avoid timeout issues but will be slower. [yes/NO]:              
+Do you wish to optimize your script with torch dynamo?[yes/NO]:       
+Do you want to use DeepSpeed? [yes/NO]:                               
+Do you want to use FullyShardedDataParallel? [yes/NO]:                
+Do you want to use Megatron-LM ? [yes/NO]:                            
+How many GPU(s) should be used for distributed training? [1]:2        
+What GPU(s) (by id) should be used for training on this machine as a comma-separated list? [all]:0,1
+Would you like to enable numa efficiency? (Currently only supported on NVIDIA hardware). [yes/NO]: yes
+----------------------------------------------------------------------Do you wish to use mixed precision?
+Please select a choice using the arrow or number keys, and selecting wbf16                                                                  
+accelerate configuration saved at /root/.cache/huggingface/accelerate/default_config.yaml                                                   
+root@8a214ff19168fc2c:~/llm-research-3# ls                            
+LICENSE  README.md  gpu_monitor.py  llm.py  requirements.txt          
+root@8a214ff19168fc2c:~/llm-research-3# accelerate launch llm.py
+🔍 Device: CUDA
+GPU: NVIDIA GeForce RTX 4090
+Memory: 25.3 GB
+🌱 Set all seeds to 42
+
+📋 Model Configuration:
+   Architecture: 384d, 6L, 8H, 1536ff
+   Training: 2000 steps, batch size 24
+   Data: 500,000 tokens, seq_len 512
+🔄 Processing new data (will cache for future use)
+🌱 Set all seeds to 42
+🔄 Processing new data (will cache for future use)
+Resolving data files: 100%|█████████| 104/104 [00:01<00:00, 88.71it/s]
+Resolving data files: 100%|█████| 104/104 [00:00<00:00, 380634.92it/s]
+Resolving data files: 100%|█████████| 104/104 [00:01<00:00, 78.23it/s]
+Resolving data files: 100%|█████| 104/104 [00:00<00:00, 344828.15it/s]
+Loaded 2000 documents
+Tokenizing texts...
+Tokenizing:  34%|█████▊           | 690/2000 [00:00<00:01, 765.61it/s]Loaded 2000 documents
+Tokenizing texts...
+Tokenizing: 100%|████████████████| 2000/2000 [00:02<00:00, 768.16it/s]
+Using 500,000 tokens
+💾 Cached data to data_cache/tokenized_data_2000_500000.pkl
+Tokenizing:  67%|██████████▋     | 1340/2000 [00:01<00:00, 784.10it/s]📊 Dataset: 449540 train, 49948 val samples
+
+🚀 Training Small model with Muon optimizer
+🌱 Set all seeds to 42
+Tokenizing:  95%|███████████████▏| 1895/2000 [00:02<00:00, 772.49it/s]  📊 Total parameters: 29,496,192
+  Muon parameters: 10,616,832
+  AdamW parameters: 18,879,360
+Tokenizing: 100%|████████████████| 2000/2000 [00:02<00:00, 779.80it/s]
+Using 500,000 tokens
+💾 Cached data to data_cache/tokenized_data_2000_500000.pkl
+🌱 Set all seeds to 42
+  Muon parameters: 10,616,832
+  AdamW parameters: 18,879,360
+Training:   0%|                              | 0/2000 [00:00<?, ?it/s]huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
+To disable this warning, you can either:
+        - Avoid using `tokenizers` before the fork if possible
+        - Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
+huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
+To disable this warning, you can either:
+        - Avoid using `tokenizers` before the fork if possible
+        - Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
+huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
+To disable this warning, you can either:
+        - Avoid using `tokenizers` before the fork if possible
+        - Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
+huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...
+To disable this warning, you can either:
+        - Avoid using `tokenizers` before the fork if possible
+        - Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/root/llm-research-3/llm.py", line 519, in <module>
+[rank0]:     model, final_metrics = train_model(config, train_loader, val_loader, accelerator)
+[rank0]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/root/llm-research-3/llm.py", line 433, in train_model
+[rank0]:     optimizer.step()
+[rank0]:   File "/opt/conda/lib/python3.11/site-packages/accelerate/optimizer.py", line 179, in step
+[rank0]:     self.optimizer.step(closure)
+[rank0]:   File "/opt/conda/lib/python3.11/site-packages/torch/optim/lr_scheduler.py", line 124, in wrapper
+[rank0]:     return func.__get__(opt, opt.__class__)(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/opt/conda/lib/python3.11/site-packages/torch/optim/optimizer.py", line 485, in wrapper
+[rank0]:     out = func(*args, **kwargs)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/opt/conda/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]: TypeError: Muon.step() takes 1 positional argument but 2 were given
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/root/llm-research-3/llm.py", line 519, in <module>
+[rank1]:     model, final_metrics = train_model(config, train_loader, val_loader, accelerator)
+[rank1]:                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/root/llm-research-3/llm.py", line 433, in train_model
+[rank1]:     optimizer.step()
+[rank1]:   File "/opt/conda/lib/python3.11/site-packages/accelerate/optimizer.py", line 179, in step
+[rank1]:     self.optimizer.step(closure)
+[rank1]:   File "/opt/conda/lib/python3.11/site-packages/torch/optim/lr_scheduler.py", line 124, in wrapper
+[rank1]:     return func.__get__(opt, opt.__class__)(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/opt/conda/lib/python3.11/site-packages/torch/optim/optimizer.py", line 485, in wrapper
+[rank1]:     out = func(*args, **kwargs)
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/opt/conda/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]: TypeError: Muon.step() takes 1 positional argument but 2 were given
+Training:   0%|                              | 0/2000 [00:01<?, ?it/s]
+[rank0]:[W819 07:57:40.392424550 ProcessGroupNCCL.cpp:1479] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+W0819 07:57:41.777000 3891 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 3937 closing signal SIGTERM
+E0819 07:57:42.091000 3891 site-packages/torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: 1) local_rank: 1 (pid: 3938) of binary: /opt/conda/bin/python3.11
+Traceback (most recent call last):
+  File "/opt/conda/bin/accelerate", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/accelerate/commands/accelerate_cli.py", line 50, in main
+    args.func(args)
+  File "/opt/conda/lib/python3.11/site-packages/accelerate/commands/launch.py", line 1226, in launch_command
+    multi_gpu_launcher(args)
+  File "/opt/conda/lib/python3.11/site-packages/accelerate/commands/launch.py", line 853, in multi_gpu_launcher
+    distrib_run.run(args)
+  File "/opt/conda/lib/python3.11/site-packages/torch/distributed/run.py", line 883, in run
+    elastic_launch(
+  File "/opt/conda/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 139, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 270, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+llm.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2025-08-19_07:57:41
+  host      : 8a214ff19168fc2c
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 3938)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
+root@8a214ff19168fc2c:~/llm-research-3# git pull
+remote: Enumerating objects: 5, done.
+remote: Counting objects: 100% (5/5), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 3 (delta 2), reused 3 (delta 2), pack-reused 0 (from 0)
+Unpacking objects: 100% (3/3), 649 bytes | 649.00 KiB/s, done.
+From https://github.com/vukrosic/llm-research-3
+   c620574..ac100a5  main       -> origin/main
+Updating c620574..ac100a5
+Fast-forward
+ llm.py | 44 +++++++++++++++++++++++++++-----------------
+ 1 file changed, 27 insertions(+), 17 deletions(-)
+root@8a214ff19168fc2c:~/llm-research-3# accelerate launch llm.py
+🔍 Device: CUDA
+GPU: NVIDIA GeForce RTX 4090
+Memory: 25.3 GB
+🌱 Set all seeds to 42
+
+📋 Model Configuration:
+   Architecture: 384d, 6L, 8H, 1536ff
+   Training: 2000 steps, batch size 24
+   Data: 500,000 tokens, seq_len 512
+📦 Loading cached data from data_cache/tokenized_data_2000_500000.pkl
+✅ Loaded 2000 documents, 500,000 tokens from cache
+🌱 Set all seeds to 42
+📦 Loading cached data from data_cache/tokenized_data_2000_500000.pkl
+📊 Dataset: 449540 train, 49948 val samples
+
+🚀 Training Small model with Muon optimizer
+🌱 Set all seeds to 42
+✅ Loaded 2000 documents, 500,000 tokens from cache
+🌱 Set all seeds to 42
+  📊 Total parameters: 29,496,192
+  Muon parameters: 10,616,832
+  AdamW parameters: 18,879,360
+  Muon parameters: 10,616,832
+  AdamW parameters: 18,879,360
+Training:  25%|▎| 500/2000 [00:42<01:49, 13.69it/s, loss=4.6036, acc=0
+Step 500: Val Loss: 4.5559, Val Acc: 0.2521, Val PPL: 95.19
+Training:  50%|▌| 1000/2000 [01:15<01:06, 14.95it/s, loss=3.2075, acc=
+Step 1000: Val Loss: 2.7818, Val Acc: 0.4346, Val PPL: 16.15
 Training:  75%|▊| 1500/2000 [01:49<00:33, 15.11it/s, loss=1.9366, acc=
 Step 1500: Val Loss: 1.3099, Val Acc: 0.7165, Val PPL: 3.71
 Training: 100%|█| 2000/2000 [02:23<00:00, 13.98it/s, loss=1.4071, acc=
