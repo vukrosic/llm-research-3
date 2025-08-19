@@ -1,0 +1,14 @@
+Training:  75%|▊| 1500/2000 [01:49<00:33, 15.11it/s, loss=1.9366, acc=
+Step 1500: Val Loss: 1.3099, Val Acc: 0.7165, Val PPL: 3.71
+Training: 100%|█| 2000/2000 [02:23<00:00, 13.98it/s, loss=1.4071, acc=
+  ⏱️ Training completed in 143.0 seconds
+  📊 Final - Loss: 0.6503, Acc: 0.8548, PPL: 1.92
+
+🎉 TRAINING COMPLETED!
+⏱️ Total time: 2.4 minutes
+🏆 Final Results:
+   Validation Loss: 0.6503
+   Validation Accuracy: 0.8548
+   Validation Perplexity: 1.92
+[rank0]:[W819 08:03:36.430923970 ProcessGroupNCCL.cpp:1479] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+root@8a214ff19168fc2c:~/llm-research-3# 
