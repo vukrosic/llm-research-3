@@ -15,6 +15,7 @@ from typing import List, Optional
 import warnings
 import os
 import pickle
+from accelerate import Accelerator
 warnings.filterwarnings('ignore')
 
 def set_seed(seed: int = 42):
@@ -293,33 +294,48 @@ class MinimalLLM(nn.Module):
         logits = self.lm_head(x)
         return logits
 
-def evaluate_model(model: nn.Module, val_loader: DataLoader, config: ModelConfig):
+def evaluate_model(model: nn.Module, val_loader: DataLoader, config: ModelConfig, accelerator: Optional[Accelerator] = None):
     """Evaluate model performance"""
     model.eval()
-    total_loss = 0
-    total_tokens = 0
-    total_correct = 0
+    total_loss = 0.0
+    total_tokens = 0.0
+    total_correct = 0.0
 
     device = next(model.parameters()).device
 
+    # Distribute eval steps across processes to keep total roughly constant
+    max_batches = config.eval_steps
+    if accelerator is not None:
+        max_batches = math.ceil(config.eval_steps / max(1, accelerator.num_processes))
+
     with torch.no_grad():
         for i, (x, y) in enumerate(val_loader):
-            if i >= config.eval_steps:
+            if i >= max_batches:
                 break
             x, y = x.to(device), y.to(device)
 
-            with autocast(enabled=config.use_amp):
+            autocast_ctx = accelerator.autocast() if accelerator is not None else autocast(enabled=config.use_amp)
+            with autocast_ctx:
                 logits = model(x)
                 loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
 
-            total_loss += loss.item() * y.numel()
-            total_tokens += y.numel()
+            batch_tokens = float(y.numel())
+            total_loss += loss.item() * batch_tokens
+            total_tokens += batch_tokens
 
             predictions = logits.argmax(dim=-1)
-            total_correct += (predictions == y).sum().item()
+            total_correct += float((predictions == y).sum().item())
 
-    avg_loss = total_loss / total_tokens
-    accuracy = total_correct / total_tokens
+    # Reduce across processes
+    if accelerator is not None:
+        metrics_tensor = torch.tensor([total_loss, total_tokens, total_correct], device=device, dtype=torch.float64)
+        # Add batch dim to ensure consistent gather shape [num_processes, 3]
+        gathered = accelerator.gather_for_metrics(metrics_tensor.unsqueeze(0))
+        sums = gathered.sum(dim=0)
+        total_loss, total_tokens, total_correct = [s.item() for s in sums]
+
+    avg_loss = total_loss / max(1.0, total_tokens)
+    accuracy = total_correct / max(1.0, total_tokens)
     perplexity = math.exp(min(avg_loss, 20))
 
     model.train()
@@ -347,18 +363,18 @@ def setup_muon_optimizer(model: nn.Module, config: ModelConfig):
 
     return [muon_optimizer, adamw_optimizer]
 
-def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataLoader):
+def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataLoader, accelerator: Optional[Accelerator] = None):
     """Train the model with Muon optimizer"""
-    print(f"\n🚀 Training Small model with Muon optimizer")
+    accelerator = accelerator or Accelerator()
+    accelerator.print(f"\n🚀 Training Small model with Muon optimizer")
 
     # Initialize model
     set_seed(42)
     model = MinimalLLM(config)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
+    device = accelerator.device
 
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"  📊 Total parameters: {total_params:,}")
+    accelerator.print(f"  📊 Total parameters: {total_params:,}")
 
     # Setup optimizers
     optimizers = setup_muon_optimizer(model, config)
@@ -377,7 +393,16 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         schedulers.append(scheduler)
 
-    scaler = GradScaler() if config.use_amp else None
+    # Prepare for distributed training
+    objects_to_prepare = [model, *optimizers, *schedulers, train_loader, val_loader]
+    prepared = accelerator.prepare(*objects_to_prepare)
+    model = prepared[0]
+    prepared_idx = 1
+    optimizers = list(prepared[prepared_idx:prepared_idx + 2])
+    prepared_idx += 2
+    schedulers = list(prepared[prepared_idx:prepared_idx + 2])
+    prepared_idx += 2
+    train_loader, val_loader = prepared[prepared_idx:prepared_idx + 2]
 
     # Training loop
     model.train()
@@ -385,94 +410,80 @@ def train_model(config: ModelConfig, train_loader: DataLoader, val_loader: DataL
     start_time = time.time()
     best_val_loss = float('inf')
 
-    pbar = tqdm(total=config.max_steps, desc="Training")
+    pbar = tqdm(total=config.max_steps, desc="Training") if accelerator.is_main_process else None
 
     while step < config.max_steps:
         for batch_idx, (x, y) in enumerate(train_loader):
             if step >= config.max_steps:
                 break
 
+
             x, y = x.to(device), y.to(device)
 
-            # Forward pass with gradient accumulation
-            if config.use_amp:
-                with autocast():
+            with accelerator.accumulate(model):
+                with accelerator.autocast():
                     logits = model(x)
                     loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
-                    loss = loss / config.gradient_accumulation_steps
-                scaler.scale(loss).backward()
-            else:
-                logits = model(x)
-                loss = F.cross_entropy(logits.view(-1, config.vocab_size), y.view(-1))
-                loss = loss / config.gradient_accumulation_steps
-                loss.backward()
 
-            # Optimizer step after accumulation
-            if (step + 1) % config.gradient_accumulation_steps == 0:
-                if config.use_amp:
-                    for optimizer in optimizers:
-                        scaler.unscale_(optimizer)
-                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+                accelerator.backward(loss)
 
-                    for optimizer in optimizers:
-                        scaler.step(optimizer)
-                        optimizer.zero_grad()
-                    for scheduler in schedulers:
-                        scheduler.step()
-                    scaler.update()
-                else:
+                if accelerator.sync_gradients:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-                    for optimizer in optimizers:
-                        optimizer.step()
-                        optimizer.zero_grad()
+                for optimizer in optimizers:
+                    optimizer.step()
+                    optimizer.zero_grad()
+                if accelerator.sync_gradients:
                     for scheduler in schedulers:
                         scheduler.step()
 
             # Logging
-            if step % 100 == 0:
+            if step % 100 == 0 and accelerator.is_main_process:
                 with torch.no_grad():
                     predictions = logits.argmax(dim=-1)
                     accuracy = (predictions == y).float().mean().item()
-                    current_loss = loss.item() * config.gradient_accumulation_steps
+                    current_loss = loss.item()
                     perplexity = math.exp(min(current_loss, 20))
 
-                pbar.set_postfix({
-                    'loss': f'{current_loss:.4f}',
-                    'acc': f'{accuracy:.3f}',
-                    'ppl': f'{perplexity:.1f}',
-                    'lr': f'{optimizers[0].param_groups[0]["lr"]:.2e}'
-                })
+                if pbar is not None:
+                    pbar.set_postfix({
+                        'loss': f'{current_loss:.4f}',
+                        'acc': f'{accuracy:.3f}',
+                        'ppl': f'{perplexity:.1f}',
+                        'lr': f'{optimizers[0].param_groups[0]["lr"]:.2e}'
+                    })
 
             # Evaluation
             if step % config.eval_every == 0 and step > 0:
-                eval_metrics = evaluate_model(model, val_loader, config)
-                print(f"\nStep {step}: Val Loss: {eval_metrics['val_loss']:.4f}, "
-                      f"Val Acc: {eval_metrics['val_accuracy']:.4f}, "
-                      f"Val PPL: {eval_metrics['val_perplexity']:.2f}")
+                eval_metrics = evaluate_model(model, val_loader, config, accelerator)
+                accelerator.print(f"\nStep {step}: Val Loss: {eval_metrics['val_loss']:.4f}, "
+                                  f"Val Acc: {eval_metrics['val_accuracy']:.4f}, "
+                                  f"Val PPL: {eval_metrics['val_perplexity']:.2f}")
 
                 if eval_metrics['val_loss'] < best_val_loss:
                     best_val_loss = eval_metrics['val_loss']
 
             step += 1
-            if step % 100 == 0:
+            if step % 100 == 0 and pbar is not None:
                 pbar.update(100)
 
-    pbar.close()
+    if pbar is not None:
+        pbar.close()
 
     training_time = time.time() - start_time
-    print(f"  ⏱️ Training completed in {training_time:.1f} seconds")
+    accelerator.print(f"  ⏱️ Training completed in {training_time:.1f} seconds")
 
     # Final evaluation
-    final_eval = evaluate_model(model, val_loader, config)
-    print(f"  📊 Final - Loss: {final_eval['val_loss']:.4f}, "
-          f"Acc: {final_eval['val_accuracy']:.4f}, PPL: {final_eval['val_perplexity']:.2f}")
+    final_eval = evaluate_model(model, val_loader, config, accelerator)
+    accelerator.print(f"  📊 Final - Loss: {final_eval['val_loss']:.4f}, "
+                      f"Acc: {final_eval['val_accuracy']:.4f}, PPL: {final_eval['val_perplexity']:.2f}")
 
     return model, final_eval
 
 if __name__ == "__main__":
+    accelerator = Accelerator()
     # Check system
-    print(f"🔍 Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
-    if torch.cuda.is_available():
+    accelerator.print(f"🔍 Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
+    if torch.cuda.is_available() and accelerator.is_main_process:
         print(f"GPU: {torch.cuda.get_device_name()}")
         print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
@@ -481,10 +492,10 @@ if __name__ == "__main__":
 
     # Create config for Small model
     config = ModelConfig()
-    print(f"\n📋 Model Configuration:")
-    print(f"   Architecture: {config.d_model}d, {config.n_layers}L, {config.n_heads}H, {config.d_ff}ff")
-    print(f"   Training: {config.max_steps} steps, batch size {config.batch_size}")
-    print(f"   Data: {config.max_tokens:,} tokens, seq_len {config.max_seq_len}")
+    accelerator.print(f"\n📋 Model Configuration:")
+    accelerator.print(f"   Architecture: {config.d_model}d, {config.n_layers}L, {config.n_heads}H, {config.d_ff}ff")
+    accelerator.print(f"   Training: {config.max_steps} steps, batch size {config.batch_size}")
+    accelerator.print(f"   Data: {config.max_tokens:,} tokens, seq_len {config.max_seq_len}")
 
     # Load data
     texts, tokenizer, tokens = load_and_cache_data(config)
@@ -500,16 +511,17 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=2)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=2)
 
-    print(f"📊 Dataset: {len(train_dataset)} train, {len(val_dataset)} val samples")
+    if accelerator.is_main_process:
+        print(f"📊 Dataset: {len(train_dataset)} train, {len(val_dataset)} val samples")
 
     # Train model
     start_time = time.time()
-    model, final_metrics = train_model(config, train_loader, val_loader)
+    model, final_metrics = train_model(config, train_loader, val_loader, accelerator)
     total_time = time.time() - start_time
 
-    print(f"\n🎉 TRAINING COMPLETED!")
-    print(f"⏱️ Total time: {total_time/60:.1f} minutes")
-    print(f"🏆 Final Results:")
-    print(f"   Validation Loss: {final_metrics['val_loss']:.4f}")
-    print(f"   Validation Accuracy: {final_metrics['val_accuracy']:.4f}")
-    print(f"   Validation Perplexity: {final_metrics['val_perplexity']:.2f}")
+    accelerator.print(f"\n🎉 TRAINING COMPLETED!")
+    accelerator.print(f"⏱️ Total time: {total_time/60:.1f} minutes")
+    accelerator.print(f"🏆 Final Results:")
+    accelerator.print(f"   Validation Loss: {final_metrics['val_loss']:.4f}")
+    accelerator.print(f"   Validation Accuracy: {final_metrics['val_accuracy']:.4f}")
+    accelerator.print(f"   Validation Perplexity: {final_metrics['val_perplexity']:.2f}")
